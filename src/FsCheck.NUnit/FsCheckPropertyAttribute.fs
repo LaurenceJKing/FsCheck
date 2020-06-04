@@ -159,20 +159,23 @@ and FsCheckTestMethod(mi : IMethodInfo, parentSuite : Test) =
             { Rnd = Rnd (seed,gamma); Size = size }
         let attr = x.GetFsCheckPropertyAttribute()
         let testRunner = NunitRunner()
-        let config = { Config.Default with
-                        MaxTest = attr.MaxTest
-                        MaxRejected = attr.MaxFail
-                        StartSize = attr.StartSize
-                        EndSize = attr.EndSize
-                        Every = if attr.Verbose then Config.Verbose.Every else Config.Quick.Every
-                        EveryShrink = if attr.Verbose then Config.Verbose.EveryShrink else Config.Quick.EveryShrink
-                        Arbitrary = attr.Arbitrary |> Array.toList
-                        Replay = match attr.Replay with
-                                    | null -> Config.Default.Replay
-                                    | s -> parseReplay s |> Some
-                        ParallelRunConfig = if attr.Parallelism <= 0 
-                                            then None else Some { MaxDegreeOfParallelism = attr.Parallelism }
-                        Runner = testRunner }
+        let config = Config.Default
+                           .WithMaxTest(attr.MaxTest)
+                           .WithMaxRejected(attr.MaxFail)
+                           .WithStartSize(attr.StartSize)
+                           .WithEndSize(attr.EndSize)
+                           .WithEvery(if attr.Verbose then Config.Verbose.Every else Config.Quick.Every)
+                           .WithEveryShrink(if attr.Verbose then Config.Verbose.EveryShrink else Config.Quick.EveryShrink)
+                           .WithArbitrary(attr.Arbitrary |> Array.toList)
+                           .WithReplay(
+                               match attr.Replay with 
+                               | null -> Config.Default.Replay 
+                               | s -> parseReplay s |> Some)
+                           .WithParallelRunConfig(
+                               if attr.Parallelism <= 0 
+                               then None 
+                               else Some { MaxDegreeOfParallelism = attr.Parallelism })
+                           .WithRunner(testRunner)
 
         let target = if x.Fixture <> null then Some x.Fixture
                      elif x.Method.MethodInfo.IsStatic then None

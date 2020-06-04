@@ -48,34 +48,86 @@ type ParallelRunConfig =
 
 ///For configuring a run.
 [<NoEquality;NoComparison>]
-type Config = 
-    { ///The maximum number of tests that are run.
-      MaxTest       : int
-      ///The maximum number of tests where values are rejected, e.g. as the result of ==>
-      MaxRejected   : int
-      ///If set, the seed to use to start testing. Allows reproduction of previous runs.
-      Replay        : Replay option
-      ///Name of the test.
-      Name          : string
-      ///The size to use for the first test.
-      StartSize     : int
-      ///The size to use for the last test, when all the tests are passing. The size increases linearly between Start- and EndSize.
-      EndSize       : int
-      ///If set, suppresses the output from the test if the test is successful.
-      QuietOnSuccess: bool
-      ///What to print when new arguments args are generated in test n
-      Every         : int -> list<obj> -> string
-      ///What to print every time a counter-example is successfully shrunk
-      EveryShrink   : list<obj> -> string 
-      ///The Arbitrary instances on this class will be merged in back to front order, i.e. instances for the same generated type at the front
-      ///of the list will override those at the back. The instances on Arb.Default are always known, and are at the back (so they can always be
-      ///overridden)
-      Arbitrary     : list<Type>
-      ///A custom test runner, e.g. to integrate with a test framework like xUnit or NUnit. 
-      Runner        : IRunner
-      ///If set, inputs for property generation and property evaluation will be run in parallel. 
-      ParallelRunConfig : ParallelRunConfig option
-    }
+type Config = private Config of
+                {|
+                MaxTest           : int
+                MaxRejected       : int
+                Replay            : Replay option
+                Name              : string
+                StartSize         : int
+                EndSize           : int
+                QuietOnSuccess    : bool
+                Every             : int -> list<obj> -> string
+                EveryShrink       : list<obj> -> string 
+                Arbitrary         : list<Type>
+                Runner            : IRunner 
+                ParallelRunConfig : ParallelRunConfig option
+                |} with
+                member private this.Values =
+                    let values (Config config) = config
+                    this |> values
+                ///The maximum number of tests that are run.
+                member this.MaxTest = this.Values.MaxTest
+                ///The maximum number of tests where values are rejected, e.g. as the result of ==>
+                member this.MaxRejected = this.Values.MaxRejected
+                ///If set, the seed to use to start testing. Allows reproduction of previous runs.
+                member this.Replay = this.Values.Replay
+                ///Name of the test.
+                member this.Name = this.Values.Name
+                ///The size to use for the first test.
+                member this.StartSize = this.Values.StartSize
+                ///The size to use for the last test, when all the tests are passing. The size increases linearly between Start- and EndSize.
+                member this.EndSize = this.Values.EndSize
+                ///If set, suppresses the output from the test if the test is successful.
+                member this.QuietOnSuccess = this.Values.QuietOnSuccess
+                ///What to print when new arguments args are generated in test n
+                member this.Every = this.Values.Every
+                ///What to print every time a counter-example is successfully shrunk
+                member this.EveryShrink = this.Values.EveryShrink
+                ///The Arbitrary instances on this class will be merged in back to front order, i.e. instances for the same generated type at the front
+                ///of the list will override those at the back. The instances on Arb.Default are always known, and are at the back (so they can always be
+                ///overridden)
+                member this.Arbitrary = this.Values.Arbitrary
+                ///A custom test runner, e.g. to integrate with a test framework like xUnit or NUnit. 
+                member this.Runner = this.Values.Runner
+                ///If set, inputs for property generation and property evaluation will be run in parallel. 
+                member this.ParallelRunConfig = this.Values.ParallelRunConfig
+                ///Returns a new Config with specified MaxTest
+                member this.WithMaxTest maxTest =
+                    {|this.Values with MaxTest = maxTest|} |> Config
+                ///Returns a new Config with specified MaxRejected
+                member this.WithMaxRejected maxRejected =
+                    {|this.Values with MaxRejected = maxRejected|} |> Config
+                ///Returns a new Config with specified Replay option
+                member this.WithReplay replay =
+                    {|this.Values with Replay = replay|} |> Config  
+                ///Returns a new Config with specified Name
+                member this.WithName name =
+                    {|this.Values with Name = name|} |> Config                
+                ///Returns a new Config with specified StartSize
+                member this.WithStartSize startSize =
+                    {|this.Values with StartSize = startSize|} |> Config
+                ///Returns a new Config with specified EndSize
+                member this.WithEndSize endSize =
+                    {|this.Values with EndSize = endSize|} |> Config
+                ///Returns a new Config with specified QuietOnSuccess
+                member this.WithQuietOnSuccess quietOnSuccess =
+                    {|this.Values with QuietOnSuccess = quietOnSuccess|} |> Config
+                ///Returns a new Config with specified Every function
+                member this.WithEvery every =
+                    {|this.Values with Every = every|} |> Config
+                ///Returns a new Config with specified EveryShrink function
+                member this.WithEveryShrink everyShrink =
+                    {|this.Values with EveryShrink = everyShrink|} |> Config
+                ///Returns a new Config with specified Arbitrary
+                member this.WithArbitrary arbitrary =
+                    {|this.Values with Arbitrary = arbitrary|} |> Config
+                ///Returns a new Config with specified Runner
+                member this.WithRunner runner =
+                    {|this.Values with Runner = runner|} |> Config
+                ///Returns a new Config with specified ParallelRunConfig
+                member this.WithParallelRunConfig config =
+                    {|this.Values with ParallelRunConfig = config|} |> Config
 
 module Runner =
     open System.Collections.Generic
@@ -351,14 +403,14 @@ module Runner =
             member __.GetEnumerator () = enumerator () :> IEnumerator<TestStep>
             member __.GetEnumerator () = enumerator () :> System.Collections.IEnumerator
 
-    let private parallelTest config initSize resize rnd0 gen =
+    let private parallelTest (config:Config) initSize resize rnd0 gen =
         let steps = stepsSeq resize (initSize, rnd0)
         let pd = Option.fold (fun _ pc -> if pc.MaxDegreeOfParallelism <> -1 then pc.MaxDegreeOfParallelism else Environment.ProcessorCount) 1 config.ParallelRunConfig
         let parSeq = ParTestSeq (steps, config.MaxTest, config.MaxRejected, pd, gen)
         parSeq :> seq<_>
 
 
-    let private testsDone config testStep origArgs ntest nshrinks originalSeed lastSeed lastSize stamps =
+    let private testsDone (config:Config) testStep origArgs ntest nshrinks originalSeed lastSeed lastSize stamps =
         let entry (n,xs) = (100 * n / ntest),xs
         let table = stamps 
                     |> Seq.filter (not << List.isEmpty)
@@ -379,7 +431,7 @@ module Runner =
         config.Runner.OnFinished(config.Name,testResult)
 
 
-    let private runner config prop = 
+    let private runner (config:Config) prop = 
         let testNb = ref 0
         let failedNb = ref 0
         let shrinkNb = ref 0
@@ -511,7 +563,7 @@ module Runner =
         with
             _ -> false
 
-    let internal check config p = 
+    let internal check (config:Config) p = 
         //save so we can restore after the run
         let defaultArbitrary = Arb.arbitrary.Value
         let merge newT (existingTC:TypeClass<_>) = existingTC.DiscoverAndMerge(onlyPublic=true,instancesType=newT)
@@ -559,12 +611,12 @@ module Runner =
         genericM.Invoke(null, [|box config; funValue|]) |> ignore
         
 
-    let internal checkAll config (t:Type) = 
+    let internal checkAll (config:Config) (t:Type) = 
         config.Runner.OnStartFixture t
         t.GetRuntimeMethods() 
         |> Seq.filter (fun meth -> meth.IsStatic && meth.IsPublic)
         |> Seq.filter hasTestableReturnType 
-        |> Seq.iter (fun m -> checkMethod {config with Name = t.Name+"."+m.Name} m None)
+        |> Seq.iter (fun m -> checkMethod (config.WithName(t.Name+"."+m.Name))  m None)
         printf "%s" newline
 
 open Runner
@@ -573,25 +625,24 @@ open System
 type Config with
     ///The quick configuration only prints a summary result at the end of the test.
     static member Quick =
-            { MaxTest       = 100
-              MaxRejected   = 1000
-              Replay        = None
-              Name          = ""
-              StartSize     = 1
-              EndSize       = 100
-              QuietOnSuccess = false
-              Every         = fun _ _ -> String.Empty
-              EveryShrink   = fun _ -> String.Empty
-              Arbitrary     = []
-              Runner        = consoleRunner
-              ParallelRunConfig = None } 
+            {| MaxTest       = 100
+               MaxRejected   = 1000
+               Replay        = None
+               Name          = ""
+               StartSize     = 1
+               EndSize       = 100
+               QuietOnSuccess = false
+               Every         = fun _ _ -> String.Empty
+               EveryShrink   = fun _ -> String.Empty
+               Arbitrary     = []
+               Runner        = consoleRunner
+               ParallelRunConfig = None |} |> Config 
 
     ///The verbose configuration prints each generated argument.
     static member Verbose = 
-        { Config.Quick with 
-            Every       = fun n args -> sprintf "%i:%s%s%s" n Environment.NewLine (argumentsToString args) Environment.NewLine
-            EveryShrink = fun args -> sprintf "shrink:%s%s%s" Environment.NewLine (argumentsToString args) Environment.NewLine
-        }
+        Config.Quick
+                .WithEvery(fun n args -> sprintf "%i:%s%s%s" n Environment.NewLine (argumentsToString args) Environment.NewLine)
+                .WithEveryShrink(fun args -> sprintf "shrink:%s%s%s" Environment.NewLine (argumentsToString args) Environment.NewLine)
 
     static member private throwingRunner =
         { new IRunner with
@@ -611,12 +662,12 @@ type Config with
     ///Like the Quick configuration, only throws an exception with the error message if the test fails or is exhausted.
     ///Useful for use within other unit testing frameworks that usually adopt this methodology to signal failure.
     static member QuickThrowOnFailure =
-        { Config.Quick with Runner = Config.throwingRunner }
+        Config.Quick.WithRunner(Config.throwingRunner)
 
     ///Like the Verbose configuration, only throws an exception with the error message if the test fails or is exhausted.
     ///Useful for use within other unit testing frameworks that usually adopt this methodology to signal failure.
     static member VerboseThrowOnFailure =
-        { Config.Verbose with Runner = Config.throwingRunner }
+        Config.Verbose.WithRunner(Config.throwingRunner)
 
     ///The default configuration is the quick configuration.
     static member Default = Config.Quick
@@ -628,7 +679,7 @@ type Check =
     static member One (config,property:'Testable) = check config property
 
     ///Check the given property using the given config, and the given test name.
-    static member One (name,config,property:'Testable) = check { config with Name = name } property
+    static member One (name,(config:Config),property:'Testable) = check (config.WithName(name)) property
     
     ///Check the given property identified by the given MethodInfo.
     static member Method (config,methodInfo:Reflection.MethodInfo, ?target:obj) = checkMethod config methodInfo target
